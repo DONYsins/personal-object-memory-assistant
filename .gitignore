@@ -1,0 +1,4 @@
+__pycache__/
+reid_store/*
+logs/*
+query.wav
