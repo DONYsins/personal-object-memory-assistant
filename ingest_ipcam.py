@@ -16,15 +16,16 @@ import numpy as np
 import requests
 
 def try_open_camera(url: str, retries: int, log):
+    """Attempt to open camera with retries, return None if all attempts fail."""
     for attempt in range(1, retries + 1):
         cap = cv2.VideoCapture(url)
-        ok, _ = cap.read()
+        ok, _ = cap.read()  # Test if camera is responsive
         if ok:
             log_info(f"[INGEST] Camera connected on attempt {attempt}")
             return cap
         cap.release()
         log_error(f"[INGEST] Camera not ready (attempt {attempt}/{retries}). Retrying...")
-        time.sleep(1.0)
+        time.sleep(1.0)  # Wait before retry
     return None
 
 def main():
@@ -66,7 +67,7 @@ def main():
 
     last_frame_time = time.time()
     frame_read_failures = 0
-    MAX_CONSECUTIVE_FAILURES = 20  # If fail 10 times in a row, camera is disconnected
+    MAX_CONSECUTIVE_FAILURES = 20  # If fail 20 times in a row, camera is disconnected  # If fail 10 times in a row, camera is disconnected
     
     while True:
         ok, frame = cap.read()

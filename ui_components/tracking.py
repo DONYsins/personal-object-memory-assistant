@@ -17,6 +17,7 @@ def stop_ingest_if_running():
 
 
 def launch_ingest(session_id, ip_cam_url, fps=5):
+    """Launch IP camera ingestion subprocess in background."""
     # start the external ingest process as background
     cmd = [
         "python", "ingest_ipcam.py",
@@ -27,7 +28,7 @@ def launch_ingest(session_id, ip_cam_url, fps=5):
         "--retries", "5"
     ]
     log_info("[UI] Launching ingest: " + " ".join(cmd))
-    return subprocess.Popen(cmd)
+    return subprocess.Popen(cmd)  # Subprocess streams frames to backend
 
 
 def tracking_controls(uid, ip_cam_url, fps):
