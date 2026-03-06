@@ -4,4 +4,6 @@ logs/*
 query.wav
 .vscode/
 run_application - Copy.bat
-docs/*
+__pycache__/*
+ui_components/__pycache__/*
+docs/*.obsidian

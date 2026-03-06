@@ -4,7 +4,6 @@ The page simply sets the theme and then routes to either the login page or the
 dashboard based on session state.
 """
 import os
-# os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import streamlit as st
 from ui_components import login, dashboard, utils
 

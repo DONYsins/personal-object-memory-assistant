@@ -10,9 +10,9 @@ def listen_and_transcribe() -> str:
     """Record from microphone and transcribe via Google Web Speech API. Requires internet."""
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
-        recognizer.adjust_for_ambient_noise(source, duration=0.5)
-        audio = recognizer.listen(source, timeout=5, phrase_time_limit=5)
-    return recognizer.recognize_google(audio)
+        recognizer.adjust_for_ambient_noise(source, duration=0.5)  # Reduce background noise
+        audio = recognizer.listen(source, timeout=5, phrase_time_limit=5)  # 5 sec max recording
+    return recognizer.recognize_google(audio)  # Google Web Speech API
 
 
 def show_results(data, obj):
@@ -54,26 +54,26 @@ def query_controls(uid):
     c1, c2 = st.columns([1, 1])
     with c2:
         if st.button("Voice Input", key="voice_btn"):
-            log_info("Button: Voice Input clicked")
+            log_info("[QUERY] Voice Input clicked")
             with st.spinner("Listening... speak now. (Requires internet)"):
                 try:
                     text = listen_and_transcribe()
-                    log_info("Voice transcription: '%s'", text)
+                    log_info("[QUERY] Voice transcription: '%s'", text)
                     st.session_state["query_input"] = text
                     st.rerun()
                 except sr.WaitTimeoutError:
                     st.error("No speech detected. Please try again.")
-                    log_error("Voice: timeout - no speech detected")
+                    log_error("[QUERY] Voice: timeout - no speech detected")
                 except sr.UnknownValueError:
                     st.error("Could not understand the audio. Please speak clearly.")
-                    log_error("Voice: could not understand audio")
+                    log_error("[QUERY] Voice: could not understand audio")
                 except sr.RequestError as e:
                     st.error("Voice input requires an internet connection.")
-                    log_error("Voice: Google API error - %s", e)
+                    log_error("[QUERY] Voice: Google API error - %s", e)
                 except Exception as e:
                     st.error(f"Voice error: {e}")
-                    log_error("Voice error: %s", e)
-
+                    log_error("[QUERY] Voice error: %s", e)
+                    
     if "query_input" not in st.session_state:
         st.session_state["query_input"] = "Where did I last see my watch?"
 
@@ -97,7 +97,7 @@ def query_controls(uid):
             labels = [o['user_label'] for o in objs]
             obj = None
             for lab in labels:
-                if lab.lower() in query_text.lower():
+                if lab.lower() in query_text.lower():  # Case-insensitive substring match
                     obj = lab
                     break
             # Fallback: generic class keywords
@@ -113,7 +113,7 @@ def query_controls(uid):
                 st.error("Could not find a matching object. Mention the label name (e.g. 'black wallet').")
             else:
                 data = utils.api_post("/query", {"user_id": uid, "user_label": obj, "k": k})
-                log_info("Query: label='%s' k=%d", obj, k)
+                log_info("[Query] label='%s' k=%d", obj, k)
                 st.session_state["last_data"] = data
                 st.session_state["last_obj"] = obj
 

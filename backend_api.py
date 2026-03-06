@@ -36,18 +36,13 @@ from constants import (
 # ============================================================
 
 # Derived paths (using BASE_DIR from constants)
-USERS_DIR = os.path.join(BASE_DIR, "users")
-MAIN_DB = os.path.join(BASE_DIR, "main.sqlite")
-LOGS_DIR = SESSION_LOG_DIR
+USERS_DIR = os.path.join(BASE_DIR, "users")  # Per-user FAISS indices and images
+MAIN_DB = os.path.join(BASE_DIR, "main.sqlite")  # Central SQLite database
+LOGS_DIR = SESSION_LOG_DIR  # Session-grouped logging directory
 
 # ephemeral state for live sessions (TRACK, ENROLL_*)
 # keyed by session_id; will hold objects state, inferred environment, etc.
-SESSION_STATE: Dict[str, Any] = {}
-
-run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-# run_log_dir = os.path.join(LOGS_DIR, f"run_{run_stamp}")
-
-# backend_log_path = os.path.join(LOGS_DIR, f"backend - run_{run_stamp}.log")
+SESSION_STATE: Dict[str, Any] = {}  # Live session data (TRACK/ENROLL states)
 
 # ============================================================
 # APP + MODELS
@@ -55,16 +50,15 @@ run_stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
 app = FastAPI()
 
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"  # GPU if available, else CPU
 log_info(f"[BACKEND] Using device: {DEVICE}")
 
-yolo_model = YOLO(YOLO_MODEL_PATH)
+yolo_model = YOLO(YOLO_MODEL_PATH)  # Custom trained model for 12 classes
 
-# Load CLIP model
-clip_model, preprocess = clip.load(CLIP_MODEL, device=DEVICE)
+clip_model, preprocess = clip.load(CLIP_MODEL, device=DEVICE)  # For visual re-identification
 
-ACTIVE_SECONDS = 0.0
-_last_active_tick = time.time()
+ACTIVE_SECONDS = 0.0  # Track cumulative runtime for auto-cleanup
+_last_active_tick = time.time()  # Last frame processing timestamp
 
 # ============================================================
 # DB INIT
@@ -176,11 +170,12 @@ init_db()
 # ============================================================
 
 def user_dir(user_id: int) -> str:
+    """Create and return user's data directory structure."""
     p = os.path.join(USERS_DIR, str(user_id))
     os.makedirs(p, exist_ok=True)
-    os.makedirs(os.path.join(p, "faiss", "object"), exist_ok=True)
-    os.makedirs(os.path.join(p, "faiss", "environment"), exist_ok=True)
-    os.makedirs(os.path.join(p, "images"), exist_ok=True)
+    os.makedirs(os.path.join(p, "faiss", "object"), exist_ok=True)  # Object FAISS indices
+    os.makedirs(os.path.join(p, "faiss", "environment"), exist_ok=True)  # Landmark FAISS indices
+    os.makedirs(os.path.join(p, "images"), exist_ok=True)  # Detection event images
     return p
 
 def faiss_path_for_object(user_id: int, user_object_id: int) -> str:
@@ -194,10 +189,11 @@ def faiss_path_for_landmark(user_id: int, environment_id: int, landmark_id: int)
     return os.path.join(env_dir, f"{landmark_id}.index")
 
 def ensure_faiss_index(path: str):
+    """Create empty FAISS index if doesn't exist (inner product = cosine similarity)."""
     if os.path.exists(path):
         return
-    base = faiss.IndexFlatIP(512)
-    index = faiss.IndexIDMap2(base)
+    base = faiss.IndexFlatIP(512)  # Inner product on L2-normalized 512-dim embeddings
+    index = faiss.IndexIDMap2(base)  # Allows custom IDs for embeddings
     faiss.write_index(index, path)
 
 # ============================================================
@@ -205,56 +201,61 @@ def ensure_faiss_index(path: str):
 # ============================================================
 
 def get_embedding_from_bbox(frame_bgr: np.ndarray, bbox: tuple) -> Optional[np.ndarray]:
+    """Extract 512-dim L2-normalized CLIP embedding from bounding box crop."""
     x1, y1, x2, y2 = bbox
-    crop = frame_bgr[y1:y2, x1:x2]
+    crop = frame_bgr[y1:y2, x1:x2]  # Extract region of interest
     if crop.size == 0:
         return None
 
-    img = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
-    img_t = preprocess(img).unsqueeze(0).to(DEVICE)
+    img = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))  # BGR→RGB for CLIP
+    img_t = preprocess(img).unsqueeze(0).to(DEVICE)  # CLIP preprocessing pipeline
 
     with torch.no_grad():
-        emb = clip_model.encode_image(img_t).float()
-        emb = emb / emb.norm(dim=-1, keepdim=True)
+        emb = clip_model.encode_image(img_t).float()  # Extract visual features
+        emb = emb / emb.norm(dim=-1, keepdim=True)  # L2-normalize for cosine similarity
 
     return emb.cpu().numpy().astype("float32")  # shape (1,512)
 
 def bbox_iou(a, b) -> float:
+    """Compute Intersection over Union between two bounding boxes."""
     ax1, ay1, ax2, ay2 = a
     bx1, by1, bx2, by2 = b
+    # Calculate intersection rectangle
     inter_x1 = max(ax1, bx1)
     inter_y1 = max(ay1, by1)
     inter_x2 = min(ax2, bx2)
     inter_y2 = min(ay2, by2)
-    if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:
+    if inter_x2 <= inter_x1 or inter_y2 <= inter_y1:  # No overlap
         return 0.0
     inter = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
     area_a = (ax2 - ax1) * (ay2 - ay1)
     area_b = (bx2 - bx1) * (by2 - by1)
-    return inter / float(area_a + area_b - inter + 1e-9)
+    return inter / float(area_a + area_b - inter + 1e-9)  # IoU formula
 
 def bbox_center(b):
+    """Return (cx, cy) center coordinates of bounding box."""
     x1, y1, x2, y2 = b
     return ((x1 + x2) / 2.0, (y1 + y2) / 2.0)
 
 def nearest_landmark(obj_bbox, landmarks: List[tuple]) -> Optional[str]:
+    """Find closest landmark to object by Euclidean distance between centers."""
     ox, oy = bbox_center(obj_bbox)
     best = None
-    best_d = 1e18
+    best_d = 1e18  # Initialize with large value
     for lname, lbbox in landmarks:
         lx, ly = bbox_center(lbbox)
-        d = (ox - lx) ** 2 + (oy - ly) ** 2
+        d = (ox - lx) ** 2 + (oy - ly) ** 2  # Squared distance (no sqrt needed for comparison)
         if d < best_d:
             best_d = d
             best = lname
     return best
 
 def infer_location(obj_bbox, landmarks: List[tuple]) -> Optional[str]:
-    # Only infer location if we actually detected landmarks
-    if not landmarks:
+    """Determine spatial relationship: 'on' if overlapping, 'near' if close proximity."""
+    if not landmarks:  # No landmarks detected
         return None
     
-    # 1) If overlaps strongly, say "on <landmark>"
+    # Strategy 1: Check for physical overlap (object resting ON landmark)
     best_iou = 0.0
     best_name = None
     for lname, lbbox in landmarks:
@@ -264,11 +265,11 @@ def infer_location(obj_bbox, landmarks: List[tuple]) -> Optional[str]:
             best_iou = i
             best_name = lname
 
-    if best_name and best_iou > 0.25:  # small overlap threshold
+    if best_name and best_iou > 0.25:  # Overlap threshold for 'on' relationship
         log_debug(f"[LOCATION] Overlap match -> 'on {best_name}' (iou={best_iou:.3f})")
         return f"on {best_name}"
 
-    # 2) Otherwise, say "near <nearest>"
+    # Strategy 2: Find closest landmark by distance (object NEAR landmark)
     near = nearest_landmark(obj_bbox, landmarks)
     if near:
         log_debug(f"[LOCATION] Centroid match -> 'near {near}' (best_iou={best_iou:.3f} was below 0.05)")
@@ -282,25 +283,23 @@ def infer_location(obj_bbox, landmarks: List[tuple]) -> Optional[str]:
 
 def detect_objects_in_frame(frame: np.ndarray) -> tuple:
     """
-    Run YOLO inference on frame and categorize detections.
+    Run YOLO inference and categorize detections into personal objects and landmarks.
     
-    Returns: (personal_objects, landmarks)
-        - personal_objects: list of (class_label, bbox) for personal items
-        - landmarks: list of (class_label, bbox) for environmental landmarks
+    Returns: (personal_objects, landmarks) as lists of (class_label, bbox) tuples
     """
     try:
-        r0 = yolo_model(frame, verbose=False)[0]
+        r0 = yolo_model(frame, verbose=False)[0]  # YOLO detection
         boxes = r0.boxes
     except Exception as e:
         log_error(f"YOLO inference failed: {e}")
         raise
 
-    personal = []
-    landmarks = []
+    personal = []  # Personal items (Watch, Wallet, etc.)
+    landmarks = []  # Environment markers (Chair, Bed, etc.)
     for b in boxes:
         cls_id = int(b.cls[0])
-        label = yolo_model.names[cls_id]
-        bbox = tuple(map(int, b.xyxy[0].tolist()))
+        label = yolo_model.names[cls_id]  # YOLO class name
+        bbox = tuple(map(int, b.xyxy[0].tolist()))  # (x1, y1, x2, y2)
         
         if label in PERSONAL_CLASSES:
             personal.append((label, bbox))
@@ -473,18 +472,18 @@ def find_environment_from_landmarks(
     c.execute("SELECT environment_id, environment_label FROM environments WHERE user_id=?", (user_id,))
     environments = c.fetchall()
     
-    # For each environment, check: do ANY of its defined landmarks match our detections?
+    # For each environment, check if ANY registered landmark class matches detections
     for env_id, env_label in environments:
         c.execute("""
             SELECT landmark_class FROM environment_landmarks 
             WHERE environment_id = ?
         """, (env_id,))
         
-        env_landmark_classes = {row[0] for row in c.fetchall()}
-        intersection = detected_classes & env_landmark_classes
+        env_landmark_classes = {row[0] for row in c.fetchall()}  # Set of registered classes
+        intersection = detected_classes & env_landmark_classes  # Class overlap
         log_debug(f"[ENV_MATCH] Env '{env_label}' registered: {sorted(env_landmark_classes)} | intersection: {sorted(intersection)}")
         
-        # If there's ANY intersection, this is probably the right environment
+        # If ANY class matches, this is the environment
         if intersection:
             conn.close()
             log_debug(f"[ENV_MATCH] Matched env '{env_label}' (env_id={env_id})")
@@ -536,7 +535,7 @@ def get_location_text_for_event(
         WHERE environment_id = ?
     """, (environment_id,))
     
-    # Build map: "Chair" -> "white_chair", "Bed" -> "queen_bed"
+    # Map YOLO class → user's custom label (e.g., "Chair" → "white_chair")
     landmark_mapping = {row[0]: row[1] for row in c.fetchall()}
     conn.close()
     log_debug(f"[LOCATION_TEXT] landmark_mapping for env_id={environment_id}: {landmark_mapping}")
@@ -566,11 +565,12 @@ def get_location_text_for_event(
 
 
 def tick_active_runtime():
+    """Update cumulative active runtime (used for auto-cleanup threshold)."""
     global ACTIVE_SECONDS, _last_active_tick
     now = time.time()
-    dt = max(0.0, now - _last_active_tick)
+    dt = max(0.0, now - _last_active_tick)  # Time since last frame
     _last_active_tick = now
-    ACTIVE_SECONDS += dt
+    ACTIVE_SECONDS += dt  # Accumulate total active time
 
 def cleanup_if_needed(conn: sqlite3.Connection, user_id: int):
     # active runtime based cleanup
@@ -731,7 +731,7 @@ def add_personal_object(
             VALUES (?, ?, ?, ?)
         """, (user_id, generic_type, user_label.strip(), datetime.now().isoformat()))
         conn.commit()
-        user_object_id = c.lastrowid
+        user_object_id = c.lastrowid  # Get auto-generated ID
 
         # create FAISS for this object
         idx_path = faiss_path_for_object(user_id, user_object_id)
@@ -802,9 +802,9 @@ def delete_personal_object(user_id: int = Form(...), user_object_id: int = Form(
     for (path,) in rows:
         try:
             if os.path.exists(path):
-                os.remove(path)
+                os.remove(path)  # Delete image from disk
         except:
-            pass
+            pass  # Ignore file errors
     c.execute("DELETE FROM events WHERE user_object_id=?", (user_object_id,))
     # delete object record
     c.execute("DELETE FROM personal_objects WHERE user_object_id=?", (user_object_id,))
@@ -814,7 +814,7 @@ def delete_personal_object(user_id: int = Form(...), user_object_id: int = Form(
     idx_path = os.path.join(user_dir(user_id), "faiss", f"{user_object_id}.index")
     try:
         if os.path.exists(idx_path):
-            os.remove(idx_path)
+            os.remove(idx_path)  # Delete FAISS index from disk
     except:
         pass
     return {"status": "success"}
@@ -948,7 +948,7 @@ def start_session(
 
         mode = mode.strip().upper()
         if mode not in ["TRACK", "ENROLL_OBJECT", "ENROLL_LANDMARK", "TEST_ENVIRONMENT"]:
-            return {"status": "error", "message": "Invalid mode"}
+            return {"status": "error", "message": "Invalid mode"}  # Must be one of the 4 supported modes
 
         if mode == "ENROLL_OBJECT" and not user_object_id:
             return {"status": "error", "message": "user_object_id required"}
@@ -967,7 +967,7 @@ def start_session(
                 return {"status": "error", "message": "environment not found for user"}
             conn.close()
 
-        session_id = str(uuid.uuid4())
+        session_id = str(uuid.uuid4())  # Generate unique session identifier
         now = datetime.now().isoformat()
 
         conn = db_conn()
@@ -1073,8 +1073,8 @@ async def session_frame(
 
     # decode image
     contents = await file.read()
-    np_arr = np.frombuffer(contents, np.uint8)
-    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+    np_arr = np.frombuffer(contents, np.uint8)  # Convert bytes to numpy array
+    frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)  # Decode JPEG to BGR frame
     if frame is None:
         log_error(f"[FRAME] Failed to decode frame (bytes: {len(contents)})")
         conn.close()
@@ -1127,7 +1127,7 @@ async def session_frame(
 
         # find detections of wanted type
         candidates = [(lab, bb) for (lab, bb) in personal if lab == wanted_type]
-        if not candidates:
+        if not candidates:  # Target object not visible in frame
             conn.close()
             return {"status": "ok", "note": "no target object in frame"}
 
@@ -1135,7 +1135,7 @@ async def session_frame(
         def area(bb): return max(1, (bb[2]-bb[0])*(bb[3]-bb[1]))
         best_bbox = max(
             (bb for _, bb in candidates),
-            key=area
+            key=area  # Pick largest detection to avoid occlusions
         )
 
         emb = get_embedding_from_bbox(frame, best_bbox)
@@ -1293,7 +1293,7 @@ async def session_frame(
                     "missing_ticks": 0    # Consecutive frames without detection
                 }
 
-        stored_count = 0
+        stored_count = 0  # Number of events stored this frame
         now_dt = datetime.now()
         detected_labels_this_frame = set()  # Track which labels were detected THIS frame
 
@@ -1336,11 +1336,11 @@ async def session_frame(
             #   (b) Enough time has passed since last store (STORE_INTERVAL_SECONDS)
             should_store = False
             if object_info["last_stored"] is None:
-                should_store = True
+                should_store = True  # First detection of this object
             else:
                 elapsed_seconds = (now_dt - object_info["last_stored"]).total_seconds()
                 if elapsed_seconds >= STORE_INTERVAL_SECONDS:
-                    should_store = True
+                    should_store = True  # Enough time has passed
 
             if should_store and best_object_id is not None:
                 # Compute human-readable location (e.g., "on white_chair (Bedroom)")

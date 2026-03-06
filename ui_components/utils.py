@@ -10,7 +10,7 @@ from logger import log_info, log_error
 from constants import IP_CAM_URL_DEFAULT as DEFAULT_IP_CAM_URL
 
 # configuration constants
-BACKEND = "http://127.0.0.1:8000"
+BACKEND = "http://127.0.0.1:8000"  # FastAPI backend URL
 
 # Use IP camera URL from constants (can be overridden in environment)
 IP_CAM_URL_DEFAULT = os.getenv("IP_CAM_URL", DEFAULT_IP_CAM_URL)
@@ -104,9 +104,9 @@ def auto_stop_if_session_ended():
     """If session stopped (camera timeout), reset UI and rerun."""
     sid = st.session_state.get("session_id")
     if sid and api_get("/session_status", {"session_id": sid}).get("session_status") == "STOPPED":
-        st.session_state.session_id = None
+        st.session_state.session_id = None  # Clear session tracking
         st.session_state.mode = None
         from ui_components.tracking import stop_ingest_if_running
-        stop_ingest_if_running()
+        stop_ingest_if_running()  # Kill subprocess if still alive
         st.warning("✓ Session auto-stopped")
         # Removed st.rerun() - keep buttons responsive
