@@ -7,3 +7,4 @@ run_application - Copy.bat
 __pycache__/*
 ui_components/__pycache__/*
 docs/*.obsidian
+docs/*
