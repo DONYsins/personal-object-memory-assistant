@@ -15,4 +15,5 @@ faster-whisper
 SpeechRecognition
 pyaudio
 psutil
+bcrypt
 git+https://github.com/openai/CLIP.git

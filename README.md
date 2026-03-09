@@ -36,8 +36,18 @@ Install all required packages:
 ```bash
 pip install -r requirements.txt
 ```
+*Note: On a machine with a compatible NVIDIA GPU, PyTorch with CUDA (GPU support) can be installed. **Make sure that the python version is 3.10**. Detection processes faster with GPU*
 
-*Note: This may take 5-10 minutes depending on your internet speed.*
+*On a machine without a Nvidia GPU, PyTorch will still install, but it will run in CPU mode and may show a warning about missing CUDA.*
+
+*This may take 5-10 minutes depending on your internet speed.*
+
+```bash
+# Run this if your Python version is compatible and GPU is available
+# PyTorch with CUDA 12.1 (Install the version that supports your device)
+torch==2.1.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+torchvision==0.16.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+```
 
 ### 3. Set Up Your Phone Camera
 
@@ -84,6 +94,7 @@ streamlit run ui_streamlit.py --server.port 8501 --server.address localhost
 ## First Time Setup
 
 1. **Register an account** — Create your username and password
+2. **IP Camera URL** - Enter the camera stream URL (e.g. http://192.168.1.100:8080/video) into the IP Camera URL field
 2. **Add your objects** — Tell the system what items you want to track (e.g., "Blue Watch", "car_keys")
 3. **Enroll your objects** — Point your phone camera at each item for 1-2 minutes from different angles
 4. **Define your rooms** — Create environments like "Bedroom", "Living Room"
@@ -102,6 +113,7 @@ streamlit run ui_streamlit.py --server.port 8501 --server.address localhost
 3. Click **"Start Tracking"**
 4. Place items in view of your camera
 5. The system automatically records where items are seen
+6. Click **"Stop Tracking"** once you are done
 
 ### Query Mode
 1. Go to **"Query"** section

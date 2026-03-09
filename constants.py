@@ -65,7 +65,7 @@ BACKEND_FPS = 10
 # ============================================================
 
 # Default IP camera URL shown in UI
-IP_CAM_URL_DEFAULT = "http://172.26.148.241:8080/video"
+IP_CAM_URL_DEFAULT = "http://192.168.1.100:8080/video"
 
 # Data cleanup options (in minutes)
 CLEANUP_OPTIONS_HOURS = {

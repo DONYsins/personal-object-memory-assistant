@@ -1,9 +1,6 @@
-__pycache__/
 reid_store/*
 logs/*
 query.wav
 .vscode/
-run_application - Copy.bat
 __pycache__/*
 ui_components/__pycache__/*
-docs/*.obsidian
